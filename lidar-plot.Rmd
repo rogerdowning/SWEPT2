@@ -1,0 +1,179 @@
+---
+title: "LIDAR plot"
+author: "Roger Downing"
+date: "7 October 2015"
+output: html_document
+---
+# Investigation of sample LIDAR data
+Sample data is provided as a 775 megabyte zip file, which contains:
+
+1. Directory of generated wake field images
+2. Video composed of wake field images in series
+3. LIDAR hardware installation documentation
+4. Text file of LIDAR operating temperatures and input values, recorded every 2.5 minutes
+5. 24 directories, '00' to '23', each holding 95 '.scn' files
+
+The 24 directories each represent one hour of the day of August 23rd, 2014. Each '.scn' file is a single LIDAR scan from that hour and lasting roughly 30 seconds.
+
+```{r,echo=FALSE}
+library(descr)
+lidar.filename <- "~/Work/SWEPT2/samples/LIDAR/Data pack 25/00/2138233_23081400_25.scn"
+file.head( lidar.filename,10 )
+```
+The file appears to be a tab-separated variable file with headers and 5 lines of preamble.
+```{r}
+# Read in a file of LIDAR data as a CSV file with tab separators, skipping the first 5 lines and using column headers
+lidar <- read.csv( lidar.filename, skip=5, header=TRUE, sep="\t" )
+
+summary( lidar )
+```
+The range of Doppler values appears unusual:
+```{r,echo=FALSE}
+hist( lidar$Doppler,
+      main="Doppler histogram",
+      xlab="Doppler",
+      ylab="Frequency"
+      )
+```
+
+Looks like there are spurious outliers which should be ignored. The 'Range.gate' values do not appear to be actual ranges, but rather refer to a portion of a range. A web search determines that the range gate for a Galion 4000 LIDAR system is 30 metres. Looking at the included imagery of wake fields, it seems that although the range gates start at zero, the first measurement range is from 45 metres, so:
+```{r}
+# Calculate actual ranges by multiplying the range gate by 30 (metres) and then adding 15 for the midpoint
+lidar$Range = ( lidar$Range.gate + 1 ) * 30 + 15
+```
+Provided azimuth is in degrees, but the R trig functions use radians:
+```{r}
+# Convert azimuth angle to radians
+lidar$Az = lidar$Az * pi / 180
+
+# Change polar to cartesian coordinates
+lidar$x = lidar$Range * sin( lidar$Az )
+lidar$y = lidar$Range * cos( lidar$Az )
+
+# Plot our point distribution for sanity-checking
+plot( lidar$x, lidar$y )
+```
+
+Now that we have the data plotting onto a grid, we can perform bilinear 2d interpolation of the values. Bilinear was chosen as a simple but effective way of interpolating on a plane, but it may not necessarily be the right choice. Someone more versed in fluid dynamics could advise.
+
+```{r,echo=FALSE}
+library(akima)
+
+# First, filter out very high and low Doppler values
+filtered.lidar = lidar[ lidar$Doppler > 0 & lidar$Doppler < 15, ]
+
+# Perform interpolation onto a 1 metre grid
+interpolated.grid = interp( filtered.lidar$x, 
+                            filtered.lidar$y, 
+                            filtered.lidar$Doppler, 
+                            xo=seq(-300,300,by=1),
+                            yo=seq(0,-500,by=-1))
+
+# Then rotate the matrix 90 degrees clockwise to match input data
+m = interpolated.grid$z
+m.rotated = t(m)
+
+# Now with our interpolated values, we can map onto a raster and display it
+library(raster)
+
+rast = raster( m.rotated, xmn=-300, ymn=-500, xmx=300, ymx=0 )
+plot( rast,
+      col=rev( rainbow( 255,start=0,end=4/6 ) )
+      )
+```
+
+A side-by-side comparison of this image with the corresponding provided image shows great similarity but significant difference. An investigation into suitable interpolation is required to make sure that the chosen method is appropriate.
+
+## Horizontal wind speed plotting
+Measurement of the wake wind speed deficit is a useful parameter:
+```{r,echo=FALSE,fig.height=4,fig.width=6}
+max.wind = mean( sort( m.rotated, decreasing=TRUE)[1:50])
+mean.speed <- rowMeans(m.rotated, na.rm=TRUE)
+centre.speed <- m.rotated[,250]
+range01 <- function(x){(x-min(x,na.rm=TRUE))/(max(x,na.rm=TRUE)-min(x,na.rm=TRUE))}
+normed.mean.speed <- range01(mean.speed)
+normed.centre.speed <- range01(centre.speed)
+wind.deficit = (max.wind - mean.speed ) *100 / max.wind
+
+dist.seq = seq(0,500)
+plot(dist.seq,wind.deficit,
+    type='l',
+    # col='green',
+    main= "Wind speed deficit downstream of turbine",
+    xlab="Distance downstream (m)",
+    ylab="Wind speed deficit (%)"
+    )
+points(normed.centre.speed,
+    type='l',
+    col='red'
+    )
+
+# legend('bottomright',
+#        c("Mean","Centre-line"),
+#        fill=c("green","red")
+#        )
+
+```
+
+------
+## Wake Identification
+Can we determine the region of the image over which the wake stretches? We should find the centre-line, and then calculate the full width half-maximum as a way of estimating the lateral extent of the wake.
+Plot an example cross-section:
+```{r,echo=FALSE}
+plot( seq( -300, 300, by=1), 
+      m.rotated[250,], 
+      type='l',
+      main="Example cross-section of wake 250m downstream",
+      xlab="Metres",
+      ylab="Doppler")
+```
+
+Smooth the data before we try to extract the minimum value:
+```{r,echo=FALSE}
+smooth.row = function( row )
+{
+  if ( length( which( !is.na( row ))) == 0 )
+  {
+    rep(NA,601)
+  } else
+  {
+    lo = loess( row ~ seq(-300,300,by=1), na.action = na.exclude )
+    predict(lo)
+  }
+}
+
+m.smoothed <- apply( m.rotated[ seq(100,500),], 1, FUN = smooth.row )
+
+plot( seq(-300,300), m.smoothed[,250], type='l',
+      xlab="Metres",
+      ylab="Smoothed Doppler")
+```
+
+Now, redraw the image with the centre-line added:
+```{r,echo=FALSE}
+plot( rast,
+      col=rev( rainbow( 255,start=0,end=4/6 ) )
+      )
+
+# Find the cell with the minimum value for each column
+centre.line = unlist(apply(m.smoothed,2,FUN = function(col) { which.min(col)}))
+
+# Subtract 300 from each point to re-centre it
+centre.line = lapply(centre.line, FUN = function(x) x-300)
+
+# Now add the points to our plot
+points( centre.line[-seq(1:60)], seq(-160,-495,by=-1), cex=0.5)
+```
+
+The tail end of the wake could be used as a coarse estimation of incident wind direction:
+```{r,echo=FALSE}
+library(graphics)
+wake.tail = unlist( tail( centre.line, n=1 ))
+plot( rast,
+      col=rev( rainbow( 255,start=0,end=4/6 ) )
+      )
+points( centre.line[-seq(1:60)], seq(-160,-495,by=-1), cex=0.5)
+arrows(0,0,wake.tail,-500,lty=2,lwd=3,col='blue')
+```
+
+The angle of incidence can then be estimated at `r round(atan( wake.tail / 500 ) * 180 / pi, digits=2)` degrees counter-clockwise to the turbine heading.
