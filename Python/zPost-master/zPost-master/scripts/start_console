@@ -1,0 +1,18 @@
+#!/bin/bash 
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd $DIR
+
+# Setup the environment
+. zpost_config.bsh
+
+cd ../ipynb
+
+# Add Check for pyside
+PYSIDE_FILE=`python -c 'import PySide.QtGui;'`
+if [ -n "$PYSIDE_FILE" ]; then
+	ipython qtconsole 
+else
+	ipython console 	
+fi
+

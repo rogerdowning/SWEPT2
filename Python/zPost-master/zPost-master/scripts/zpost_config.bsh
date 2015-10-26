@@ -1,0 +1,42 @@
+#!/bin/bash -f
+
+echo
+echo "     ________             _____ " 
+echo "________  __ \______________  /_"
+echo "_/_  /_  /_/ /  __ \_  ___/  __/"
+echo "__/ /_  ____// /_/ /(__  )/ /_  "
+echo "_/___/_/     \____//____/ \__/  "
+echo
+
+ZPOST_VIRTUALENV=../zpost-py27/bin/activate
+
+# Add check for virtualenv
+if [ ! -f $ZPOST_VIRTUALENV ]; then
+	echo Python virtual environment missing. Please run create_virtualenv script
+	exit
+fi
+
+source $ZPOST_VIRTUALENV
+
+echo Using Python from: `which python`
+
+PLATFORM=`uname`
+
+if [ -z "$PARAVIEW_HOME" ] ; then
+	if [ "$PLATFORM" == "Darwin" ] ; then
+		PARAVIEW_HOME="/Applications/paraview.app"
+	else
+		PARAVIEW_HOME=/usr/local/bin
+	fi
+fi
+
+echo Using ParaView from: $PARAVIEW_HOME
+
+if [ "$PLATFORM" == "Darwin" ] ; then
+	export DYLD_FRAMEWORK_PATH=$PARAVIEW_HOME/Contents/Frameworks
+	export DYLD_LIBRARY_PATH=/System/Library/Frameworks/ImageIO.framework/Versions/A/Resources:$PARAVIEW_HOME/Contents/Libraries
+	export PYTHONPATH=$PARAVIEW_HOME/Contents/Python:$PARAVIEW_HOME/Contents/Libraries:`pwd`/../python
+else
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PARAVIEW_HOME/../lib/paraview-4.3
+	export PYTHONPATH=$PARAVIEW_HOME/../lib/paraview-4.3/site-packages:$PARAVIEW_HOME/../lib/paraview-4.3/site-packages/vtk:`pwd`/../python
+fi

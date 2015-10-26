@@ -1,0 +1,16 @@
+#!/bin/bash 
+
+# Change directory to location of script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd $DIR
+
+# Setup the environment
+. zpost_config.bsh
+
+# Start the notebook
+if [ "$1" != "" ]; then
+	cd $1
+else
+	cd ../ipynb
+fi
+ipython notebook
