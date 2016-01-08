@@ -31,7 +31,7 @@ The range of Doppler values appears unusual:
 ```{r,echo=FALSE}
 hist( lidar$Doppler,
       main="Doppler histogram",
-      xlab="Doppler",
+      xlab="Velocity (m/s)",
       ylab="Frequency"
       )
 ```
@@ -51,7 +51,7 @@ lidar$x = lidar$Range * sin( lidar$Az )
 lidar$y = lidar$Range * cos( lidar$Az )
 
 # Plot our point distribution for sanity-checking
-plot( lidar$x, lidar$y )
+plot( lidar$x, lidar$y, xlab="Metres cross-range", ylab="Metres downrange" )
 ```
 
 Now that we have the data plotting onto a grid, we can perform bilinear 2d interpolation of the values. Bilinear was chosen as a simple but effective way of interpolating on a plane, but it may not necessarily be the right choice. Someone more versed in fluid dynamics could advise.
